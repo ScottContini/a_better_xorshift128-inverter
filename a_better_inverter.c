@@ -78,7 +78,7 @@ compute_bits26to63state1_1( uint64_t *state0_1, uint64_t *state1_1, uint64_t *st
     // optimisation: we only need to update the states when  i+17  starts hitting bits we 
     // do not know.  It really comes down to the difference between 26 - 17 = 9, every 9 iterations.
     // I'm prefer counting every 8 iterations, just my binary nature and not a huge time penalty.
-    if ((i&3)==0)
+    if ((i&7)==0)
       update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
   }
   // update states before the last loop
@@ -94,7 +94,7 @@ compute_bits26to63state1_1( uint64_t *state0_1, uint64_t *state1_1, uint64_t *st
     bit ^= (*state1_1 >> i)&1;
     *state1_1 |= (bit << (i+26));
     // same optimisation as above
-    if ((i&3)==0)
+    if ((i&7)==0)
       update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
   }
   // final update of states
@@ -169,6 +169,48 @@ search(uint64_t x0,  uint64_t x1, uint64_t * derived_seed0, uint64_t * derived_s
 }
 
 
+// It's not often, but sometimes there are multiple solutions for the seed that produced x0, x1.
+// To find the right one, you will need a third output, x2.
+// This demo function shows an example where multiple seeds produce the same x0 and x1
+void
+demo_multiple_solutions( )
+{
+    uint64_t seed0;
+    uint64_t seed1;
+    uint64_t x0, x1, s0, s1;
+
+    seed0 = 0xbabef00d12345678;
+    seed1 = 1ULL;
+    s0 = seed0;
+    s1 = seed1;
+    xorshift128_direct_step(&s0, &s1);
+    x0 = s0 + s1;
+    xorshift128_direct_step(&s0, &s1);
+    x1 = s0 + s1;
+    printf("\t\tDemo example: Seeds 0x%llx 0x%llx produce outputs %llx %llx\n", seed0, seed1, x0, x1);
+
+    seed0 = 0x352e3b2a30800e34;
+    seed1 = 0x2e36c694b0c71d9e;
+    s0 = seed0;
+    s1 = seed1;
+    xorshift128_direct_step(&s0, &s1);
+    x0 = s0 + s1;
+    xorshift128_direct_step(&s0, &s1);
+    x1 = s0 + s1;
+    printf("\t\tDemo example: Seeds 0x%llx 0x%llx produce outputs %llx %llx\n", seed0, seed1, x0, x1);
+
+    seed0 = 0xbaf0bc0d8f83042a;
+    seed1 = 0xa0124bc0fdf8bd4c;
+    s0 = seed0;
+    s1 = seed1;
+    // Step once
+    xorshift128_direct_step(&s0, &s1);
+    x0 = s0 + s1;
+    xorshift128_direct_step(&s0, &s1);
+    x1 = s0 + s1;
+    printf("\t\tDemo example: Seeds 0x%llx 0x%llx produce outputs %llx %llx\n", seed0, seed1, x0, x1);
+    
+}
 
 
 double now_seconds(clockid_t clock_id) {
@@ -228,11 +270,17 @@ int main(int argc, char **argv) {
       s0 = derived_seed0; s1 = derived_seed1;
       for (int i=0; i < 16; ++i) {
         xorshift128_direct_step(&s0, &s1);
-        printf("0x%llx (= decimal %llu)\n", s0+s1, s0+s1);
+        printf("\t0x%llx (= decimal %llu)\n", s0+s1, s0+s1);
       }
     }
     else {
       printf("\033[1mFailure!  \033[0mPlease don't hurt me.\n");
+      printf("\n\tI can assure you that I found one solution, just not the original seed.\n");
+      printf("\tFYI: In some cases, there are multiple solutions.\n");
+      printf("\tFor proof of this, just see demo_multiple_solutions()\n");
+      printf("\tI'll just call it right now to prove my point...\n");
+      demo_multiple_solutions();
+      printf("\tYou will need a third output to be sure you have the right one.\n");
     }
 
     return 0;
