@@ -42,12 +42,10 @@ update_states_from_known_state1_1_bits(uint64_t state1_1, uint64_t x0, uint64_t 
 }
 
 
-
 // Given bits 0..25 of state0_1, state1_1, state1_2
 // Figure out bits 26..63 of state1_1 using relations and corresponding state0_1, state1_2
 // Specifically, for 32 <= i < 38 :
 //    state1_2[i] = state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] ^ state1_1[i+26]
-//
 void
 compute_bits26to63state1_1( uint64_t *state0_1, uint64_t *state1_1, uint64_t *state1_2, uint64_t x0, uint64_t x1 )
 {
@@ -60,11 +58,12 @@ compute_bits26to63state1_1( uint64_t *state0_1, uint64_t *state1_1, uint64_t *st
     bit ^= (*state0_1 >> (i+17))&1;
     bit ^= (*state1_1 >> i)&1;
     *state1_1 |= (bit << (i+26));
+    // optimisation: Normally we would call update_states_from_known_state1_1_bits() here
+    // but in this case we don't need to because all of the bits in the equation are
+    // completely dependent upon lower order bits, so postpone it to the end
+
   }
-  // optimisation below -- we don't really need to call this every time in the loop above
-  // because all of the bits in the equation are completely dependent upon lower order bits
   update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
-  // We now have bits 0..32 of the states
 
   // the values from  6 <= i < 23  do not involve state0_1[i-23]
   for (; i < 23; ++i) {
@@ -141,8 +140,10 @@ void xorshift128_back_step(uint64_t *state0, uint64_t *state1) {
 }
 
 
+
+// Given two outputs x0 and x1, try to find the seed that generated them.
 void
-search(uint64_t x0,  uint64_t x1, uint64_t * derived_seed0, uint64_t * derived_seed1) {
+search_from_2_outputs(uint64_t x0,  uint64_t x1, uint64_t * derived_seed0, uint64_t * derived_seed1) {
     
 
     for (uint64_t low26_guess_state1_1=0; low26_guess_state1_1 < (1ULL <<26); ++low26_guess_state1_1) {
@@ -166,6 +167,39 @@ search(uint64_t x0,  uint64_t x1, uint64_t * derived_seed0, uint64_t * derived_s
     printf("Code is buggy or bogus data sent in -- could not find original seed\n");
     exit(1);
 
+}
+
+// Given three outputs x0 and x1 and x2, try to find the seed that generated them.
+void
+search_from_3_outputs(uint64_t x0,  uint64_t x1, uint64_t x2,
+  uint64_t * derived_seed0, uint64_t * derived_seed1)
+{
+
+    for (uint64_t low26_guess_state1_1=0; low26_guess_state1_1 < (1ULL <<26); ++low26_guess_state1_1) {
+      uint64_t comp_state0_1, comp_state1_1, comp_state1_2;
+
+      comp_state1_1 = (uint64_t)low26_guess_state1_1;
+      update_states_from_known_state1_1_bits( comp_state1_1, x0, x1, 26, &comp_state0_1, &comp_state1_2);
+      compute_bits26to63state1_1( &comp_state0_1, &comp_state1_1, &comp_state1_2, x0, x1 );
+      uint64_t s0 = comp_state0_1;
+      uint64_t s1 = comp_state1_1;
+      xorshift128_direct_step(&s0, &s1);
+      if (s0 + s1 == x1)  {
+        // bring in x2 to check whether we got the right one
+        xorshift128_direct_step(&s0, &s1);
+        if (s0 + s1 != x2) {
+          printf("Skipping a false positive that would have passed from 2 outputs only\n");
+          continue;
+        }
+        *derived_seed0 = comp_state0_1;
+        *derived_seed1 = comp_state1_1;
+        xorshift128_back_step( derived_seed0, derived_seed1);
+        return;
+      }
+
+    }
+    printf("Code is buggy or bogus data sent in -- could not find original seed\n");
+    exit(1);
 }
 
 
@@ -234,7 +268,7 @@ int main(int argc, char **argv) {
 
     printf("==========================================================================\n");
 
-    uint64_t x0, x1, s0, s1;
+    uint64_t x0, x1, x2, s0, s1;
 
     s0 = seed0;
     s1 = seed1;
@@ -248,8 +282,11 @@ int main(int argc, char **argv) {
     xorshift128_direct_step(&s0, &s1);
     x1 = s0 + s1;
 
+    // Step again
+    xorshift128_direct_step(&s0, &s1);
+    x2 = s0 + s1;
 
-    printf("Initial seed was 0x%llx 0x%llx\nThe observed outputs were 0x%llx 0x%llx\n", seed0, seed1, x0, x1);
+    printf("Initial seed was 0x%llx 0x%llx\nThe observed outputs were 0x%llx 0x%llx 0x%llx\n", seed0, seed1, x0, x1, x2);
 
     uint64_t derived_seed0;
     uint64_t derived_seed1;
@@ -258,7 +295,7 @@ int main(int argc, char **argv) {
 
     double t_real0 = now_seconds(CLOCK_REALTIME);
     double t_cpu0  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
-    search( x0, x1, &derived_seed0, &derived_seed1);
+    search_from_3_outputs( x0, x1, x2, &derived_seed0, &derived_seed1);
     double t_real1 = now_seconds(CLOCK_REALTIME);
     double t_cpu1  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
     printf("Search ended after %.6f seconds (%.6f seconds CPU time)\n",t_real1 - t_real0, t_cpu1 - t_cpu0);

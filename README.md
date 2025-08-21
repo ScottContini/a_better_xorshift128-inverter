@@ -1,10 +1,10 @@
 # a_better_xorshift128-inverter
 xorshift128+ is behind JavaScript v8 Math.random() function.
-Did you know that given 2 outputs of xorshift128+, you can usually determine all past and future states?
-This repo shows how to do it.
+In most cases you only need 2 outputs to determine all past and future states with certainty,
+but in some cases you need 3 outputs.
+This repo demonstrates the inversion with 3 outputs, but it also has a function
+`search_from_2_outputs( )` that shows that it works most of the time with only 2 outputs.
 
-
-Remark: Sometimes 2 outputs is not enough because there may be more than one seed that produce those 2 outputs.
 
 ## Compilation:
 
