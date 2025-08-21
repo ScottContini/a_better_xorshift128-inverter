@@ -53,3 +53,14 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+
+# Ignore editor specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+
+# Ignore mac grabage
+.DS_Store
