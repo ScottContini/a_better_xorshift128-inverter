@@ -5,6 +5,66 @@
 #include <stddef.h>
 #include <time.h>
 
+
+//
+//  NOTATION (required to make sense of this code): XorShift128+ takes two 64-bit state inputs (state0, state1)
+//  and transforms them into a new (state0, state1).  We use "_0" to indicate the state at time 0, i.e.
+//  (state0_0, state1_0) is the initial state, aka the seed.  After the first iteration, we call it "_1" so
+//  (state0_1, state1_1).  After the second iteration, it is called (state0_2, state1_2).
+//
+//  We get outputs after each iteration which are the sum of the states.  We call these:
+//      x0 = state0_1 + state1_1  (the first output)
+//      x1 = state0_2 + state1_2  (the second output)
+//      x2 = state0_3 + state1_3  (the third output)
+//
+//  The way the XorShift128+( ) algorithm works, we have the following properties:
+//      state0_2 = state1_1       (we use this)
+//      state0_3 = state1_2
+//
+//  NAIVE ATTACK (we don't do this): Brute forcing the internal state (state0_0, state1_0) would take 2^128 iterations.
+//  We can do better
+//
+//  OUR ATTACK (i.e. this code): This code does a search on the order of 2^26 operations to derive the internal state.
+//  One of the tricks is that we only need to figure out state1_1 and then we can derive state1_2 and state0_1 using
+//  knowledge of x0, x1 (explained below).  That would reduce it to 2^64 to brute force state1_1, but then we also show
+//  that you can determine state1_1 in 2^26 operations by using x0 and x1.
+//
+//  WHY KNOWING state1_1 IS ENOUGH TO DETERMINE REMAINING INTERNAL STATE: Remember, we know x0 and x1.  Just knowing
+//  x0 and state1_1, it tells us state0_1 = x0 - state1_1: we know both terms on right hand side, hence we know
+//  state0_1.  So we know the whole internal state after the first iteration!  We can then predict all future states.
+//  The XorShift128+ is also invertible so we can get the initial state (i.e. the seed) too.
+//
+//  REDUCING THE SEARCH SPACE DOWN TO 2^26: This is the more clever part.  We need to get into details of how
+//  XorShift128+ works, and specifically the part of it we are going to attack, which is from iteration 1 to iteraion 2.
+//  During that step we have:
+//        (state0_1, state1_1) is mapped to (state0_2, state1_2),
+//  but we also know state0_2 = state1_1 so let's write that as:
+//        (state0_1, state1_1) -> (state1_1, state1_2).
+//  If you look at exactly how XorShift128+ is defined, you can write bits of state1_2 as a function of the bits
+//  of state0_1 and state1_1.  We will use brackets [] to indicate bit indices, for example state1_2[i] means the
+//  bit of state1_2 correspond to index i  (i.e. state1_2[i] is (state1_2 >> i)&1).  Then the formula expressing
+//  output bits from input bits is:
+//      state1_2[i] = state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] ^ state1_1[i+26]
+//  Where anything with negative index should be treated as no contribution in the forumla.  We change this around
+//  to have state1_1[i+26] on the left hand side, which give us this equation that we call the "inductive equation":
+//
+//      state1_1[i+26] = state1_2[i] ^ state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i]
+//
+//  The inductive equation tells use that we can determine bit index i+26 of state1_1 by knowing lower index bits of
+//  state0_1 and state1_2.  Now imagine that we know the least significant 26 bits of state1_1 (this is what we are
+//  going to brute force).  Then we can determine the same least significant bits of state0_1 and state1_2 using
+//  x0 and and x1 (the trick in "WHY KNOWING state1_1 IS ENOUGH TO DETERMINE REMAINING INTERNAL STATE" but restricted
+//  to only the bits we need).  In other words, we can exactly determine the next bit of state1_1.  Using the
+//  inductive equation, we can iterate and recover the remaining unknown bits.
+//
+//  So the algorithm guesses the least significant bits of state1_1, derives the remaining bits using the inductive
+//  equation while at the same time deriving the bits of state0_1 and state1_2 using x0.  It then checks if the
+//  guess is correct by running XorShift128+ on the derived state values to see if it matches x0 and x1.  If so,
+//  it is assumed to be a correct find.  I was expecting that I only needed to match x0 to confirm it, but then
+//  I found that there are multiple seeds that can match a particular x0 sometimes when I derive the remaining values
+//  the way I do.  Hence we also use x2 to check thatw e got the right one.
+
+
 // direct xorshift function 
 void xorshift128_direct_step(uint64_t *state0, uint64_t *state1) {
     uint64_t old_state0 = *state0;
