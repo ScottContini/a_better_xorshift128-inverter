@@ -104,8 +104,9 @@ update_states_from_known_state1_1_bits(uint64_t state1_1, uint64_t x0, uint64_t 
 
 // Given bits 0..25 of state0_1, state1_1, state1_2
 // Figure out bits 26..63 of state1_1 using relations and corresponding state0_1, state1_2
-// Specifically, for 32 <= i < 38 :
+// Specifically, for 0 <= i < 38 :
 //    state1_2[i] = state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] ^ state1_1[i+26]
+// where any index less than 0 is treated to have no contribution.
 void
 compute_bits26to63state1_1( uint64_t *state0_1, uint64_t *state1_1, uint64_t *state1_2, uint64_t x0, uint64_t x1 )
 {
