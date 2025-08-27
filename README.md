@@ -2,26 +2,80 @@
 xorshift128+ is behind JavaScript v8 Math.random() function.
 In most cases you only need 2 outputs to predict all past and future outputs with certainty,
 but in some cases you need 3 outputs.
-This repo demonstrates the inversion with 3 outputs, but it also has a function
-`search_from_2_outputs( )` that shows that it works most of the time with only 2 outputs.
+This repo demonstrates the inversion with 2 or 3 outputs.
+
+It contains 2 repos as follows:
+    - xorshift128.c : this program will take command line input for the seed, and provide observed outputs
+      to be fed into the other program.
+    - a_better_inverter.c : this program will take command line input of the consecutive observed outputs
+      from the first program, and retrieve a seed that matches at least the first 2 outputs.  If you
+      provide 3 outputs in the command line, it will derive the exact same seed and will match all outputs.
 
 
-## Compilation:
+## xorshift128.c compilation:
 
 ```bash
-gcc -O3 a_better_inverter.c
+gcc xorshift128.c
 ```
 
-## Usage
+## xorshift128.c usage
 
 ```bash
 ./a.out seed0 seed1
 ```
 
+## .a_better_inverter.c compilation:
+
+
+```bash
+gcc -O3 a_better_inverter.c -o inverter.out
+```
+
+## a_better_inverter.c Usage
+
+```bash
+./inverter.out x0 x1 
+```
+
+or
+
+```bash
+./inverter.out x0 x1 x2
+```
+
+## Example
 For example
 ```bash
 ./a.out 0xbabef00d12345678 0x12345678abcdef
 ```
 
-More coming soon, stay tuned.
+This will output
+
+```bash
+Taking seeds from command line
+Initial seed was 0xbabef00d12345678 0x12345678abcdef
+The observed outputs are:
+	0xbc37b4c21fad6702
+	0x533174ceb893a293
+	0xb609a47e0f4f2897
+	0xd77c8e560bae17f8
+	0x647c977ce121cb0c
+	0xba038712153e9631
+	0x1317b7415767c56b
+	0xe8473ac18b0ebb05
+Use at least 2 (prefer 3) consecutive outputs in other program to find initial seed
+```
+
+We can then do
+
+```bash
+./inverter.out 0xbc37b4c21fad6702 0x533174ceb893a293 0xb609a47e0f4f2897
+```
+
+or 
+
+```bash
+./inverter.out 0xbc37b4c21fad6702 0x533174ceb893a293
+```
+
 
