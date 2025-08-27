@@ -1,4 +1,4 @@
-# a_better_xorshift128-inverter
+# a_better_xorshift128_inverter
 xorshift128+ is behind JavaScript v8 Math.random() function.
 In most cases you only need 2 outputs to predict all past and future outputs with certainty,
 but in some cases you need 3 outputs.
@@ -6,10 +6,10 @@ This repo demonstrates the inversion with 2 or 3 outputs.
 
 It contains 2 repos as follows:
 
-    - xorshift128.c : this program will take command line input for the seed, and provide observed outputs
+    + xorshift128.c : this program will take command line input for the seed, and provide observed outputs
       to be fed into the other program.
 
-    - a_better_inverter.c : this program will take command line input of the consecutive observed outputs
+    + a_better_inverter.c : this program will take command line input of the consecutive observed outputs
       from the first program, and retrieve a seed that matches at least the first 2 outputs.  If you
       provide 3 outputs in the command line, it will derive the exact same seed and will match all outputs.
 
