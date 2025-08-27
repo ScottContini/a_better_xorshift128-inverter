@@ -5,8 +5,10 @@ but in some cases you need 3 outputs.
 This repo demonstrates the inversion with 2 or 3 outputs.
 
 It contains 2 repos as follows:
+
     - xorshift128.c : this program will take command line input for the seed, and provide observed outputs
       to be fed into the other program.
+
     - a_better_inverter.c : this program will take command line input of the consecutive observed outputs
       from the first program, and retrieve a seed that matches at least the first 2 outputs.  If you
       provide 3 outputs in the command line, it will derive the exact same seed and will match all outputs.
@@ -24,7 +26,7 @@ gcc xorshift128.c
 ./a.out seed0 seed1
 ```
 
-## .a_better_inverter.c compilation:
+## a_better_inverter.c compilation:
 
 
 ```bash
