@@ -5,7 +5,14 @@
 #include <stddef.h>
 #include <time.h>
 
-
+// This program will find a seed that matches outputs from xorshift128.c.
+// You can feed in either 2 or 3 consecutive outputs from xorshift128.c.
+//    - If you provide only 2, then there is a chance that it will not find the same seed as was 
+//      used from xorshift128.c, but will find a seed that matches those 2 outputs.
+//    - If you provide 3 outputs, then it always seems to find the exact same seed (this is expected)
+//      and will match all outputs.
+//
+//  ------------------------------------      THEORY      ------------------------------------
 //
 //  NOTATION (required to make sense of this code): XorShift128+ takes two 64-bit state inputs (state0, state1)
 //  and transforms them into a new (state0, state1).  We use "_0" to indicate the state at time 0, i.e.
@@ -317,68 +324,57 @@ double now_seconds(clockid_t clock_id) {
 
 
 int main(int argc, char **argv) {
-    // defaults
-    uint64_t seed0 = 123456789ULL;
-    uint64_t seed1 = 987654321ULL;
-
-    if (argc >= 3) {
-        printf("Taking seeds from command line\n");
-        seed0 = strtoull(argv[1], NULL, 0); // accepts decimal or 0x...
-        seed1 = strtoull(argv[2], NULL, 0);
-    }
-
-    printf("==========================================================================\n");
-
-    uint64_t x0, x1, x2, s0, s1;
-
-    s0 = seed0;
-    s1 = seed1;
-
-    // Step once
-    xorshift128_direct_step(&s0, &s1);
-    // Output x0 from state1
-    x0 = s0 + s1;
-
-    // Step again
-    xorshift128_direct_step(&s0, &s1);
-    x1 = s0 + s1;
-
-    // Step again
-    xorshift128_direct_step(&s0, &s1);
-    x2 = s0 + s1;
-
-    printf("Initial seed was 0x%llx 0x%llx\nThe observed outputs were 0x%llx 0x%llx 0x%llx\n", seed0, seed1, x0, x1, x2);
-
+    uint64_t x0, x1, x2;
     uint64_t derived_seed0;
     uint64_t derived_seed1;
 
-    printf("Attempting to invert xorshift128, please wait...\n\n");
+    if (argc <  3) {
+      printf("Please provide at least 2 (prefer 3) consecutive outputs in command line\n");
+      printf("Example: %s 0x3a1c3eec124a1dc5 0x741d90cb5d0c0b93 0xaff84efb22a790be\n", argv[0]);
+      exit(0);
+    }
+    else if (argc == 3) {
+        printf("Taking 2 observed values from command line\n");
+        x0 = strtoull(argv[1], NULL, 0); // accepts decimal or 0x...
+        x1 = strtoull(argv[2], NULL, 0);
+        printf("The observed outputs were 0x%llx 0x%llx\n", x0, x1);
+        printf("==========================================================================\n");
+        printf("Attempting to invert xorshift128, please wait...\n\n");
 
-    double t_real0 = now_seconds(CLOCK_REALTIME);
-    double t_cpu0  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
-    search_from_3_outputs( x0, x1, x2, &derived_seed0, &derived_seed1);
-    double t_real1 = now_seconds(CLOCK_REALTIME);
-    double t_cpu1  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
-    printf("Search ended after %.6f seconds (%.6f seconds CPU time)\n",t_real1 - t_real0, t_cpu1 - t_cpu0);
+        double t_real0 = now_seconds(CLOCK_REALTIME);
+        double t_cpu0  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
+        search_from_2_outputs( x0, x1, &derived_seed0, &derived_seed1);
+        double t_real1 = now_seconds(CLOCK_REALTIME);
+        double t_cpu1  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
+        printf("Search ended after %.6f seconds (%.6f seconds CPU time)\n",t_real1 - t_real0, t_cpu1 - t_cpu0);
+    }
+    else if (argc >= 3) {
+        printf("Taking 3 observed values from command line\n");
+        x0 = strtoull(argv[1], NULL, 0); // accepts decimal or 0x...
+        x1 = strtoull(argv[2], NULL, 0);
+        x2 = strtoull(argv[3], NULL, 0);
+        printf("The observed outputs were 0x%llx 0x%llx 0x%llx\n", x0, x1, x2);
+        printf("==========================================================================\n");
+        printf("Attempting to invert xorshift128, please wait...\n\n");
+
+        double t_real0 = now_seconds(CLOCK_REALTIME);
+        double t_cpu0  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
+        search_from_3_outputs( x0, x1, x2, &derived_seed0, &derived_seed1);
+        double t_real1 = now_seconds(CLOCK_REALTIME);
+        double t_cpu1  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
+        printf("Search ended after %.6f seconds (%.6f seconds CPU time)\n",t_real1 - t_real0, t_cpu1 - t_cpu0);
+    }
+
+
 
     printf("Derived seed: \033[1m0x%llx 0x%llx\n", derived_seed0, derived_seed1);
-    if (derived_seed0 == seed0 && derived_seed1 == seed1) {
-      printf("\033[1mSuccess!  \033[0mDon't forget to leave a tip in the tip jar.\n");
-      printf("Next 16 outputs are:\n");
-      s0 = derived_seed0; s1 = derived_seed1;
-      for (int i=0; i < 16; ++i) {
-        xorshift128_direct_step(&s0, &s1);
-        printf("\t0x%llx (= decimal %llu)\n", s0+s1, s0+s1);
-      }
-    }
-    else {
-      printf("\033[1mFailure!  \033[0mPlease don't hurt me.\n");
-      printf("\n\tI can assure you that I found one solution, just not the original seed.\n");
-      printf("\tFYI: In some cases, there are multiple solutions.\n");
-      printf("\tFor proof of this, just see demo_multiple_solutions()\n");
-      printf("\tI'll just call it right now to prove my point...\n");
-      demo_multiple_solutions();
-      printf("\tYou will need a third output to be sure you have the right one.\n");
+    printf("\033[1mSuccess!  \033[0mFound a seed that matches those outputs.\n");
+    printf("Next 8 outputs are:\n");
+    uint64_t s0, s1;
+    s0 = derived_seed0; s1 = derived_seed1;
+    for (int i=0; i < 8; ++i) {
+      xorshift128_direct_step(&s0, &s1);
+      printf("\t0x%llx (= decimal %llu)\n", s0+s1, s0+s1);
     }
 
     return 0;
