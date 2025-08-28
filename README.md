@@ -10,8 +10,9 @@ It contains 2 repos as follows:
 to be fed into the other program.
 
 - a_better_inverter.c : this program will take command line input of the consecutive observed outputs
-from the first program, and retrieve a seed that matches at least the first 2 outputs.  If you
-provide 3 outputs in the command line, it will derive the exact same seed and will match all outputs.
+from the first program, and retrieve all seeds that match the first 2 outputs.  If you
+provide 3 outputs in the command line, it is very likely that there is only one seed so it
+will derive the exact seed that will match all outputs.
 
 
 ## xorshift128.c compilation:

@@ -72,6 +72,10 @@
 //  the way I do.  Hence we also use x2 to check thatw e got the right one.
 
 
+
+#define MAX_SOLUTIONS     16    // Multiple solutions possible when only 2 outputs provided
+
+
 // direct xorshift function 
 void xorshift128_direct_step(uint64_t *state0, uint64_t *state1) {
     uint64_t old_state0 = *state0;
@@ -114,6 +118,9 @@ update_states_from_known_state1_1_bits(uint64_t state1_1, uint64_t x0, uint64_t 
 // Specifically, for 0 <= i < 38 :
 //    state1_2[i] = state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] ^ state1_1[i+26]
 // where any index less than 0 is treated to have no contribution.
+//
+// Future TODO: Code below can be sped up a lot by using pre-computated tables involving all possible
+// combinations of some known collections of bits.
 void
 compute_bits26to63state1_1( uint64_t *state0_1, uint64_t *state1_1, uint64_t *state1_2, uint64_t x0, uint64_t x1 )
 {
@@ -209,11 +216,13 @@ void xorshift128_back_step(uint64_t *state0, uint64_t *state1) {
 
 
 
-// Given two outputs x0 and x1, try to find the seed that generated them.
-void
-search_from_2_outputs(uint64_t x0,  uint64_t x1, uint64_t * derived_seed0, uint64_t * derived_seed1) {
+// Given two outputs x0 and x1, find all seeds that generated them (up to MAX_SOLUTIONS).
+// Returns the number of solutions found
+int
+search_from_2_outputs(uint64_t x0,  uint64_t x1, uint64_t derived_seed0[MAX_SOLUTIONS],
+  uint64_t derived_seed1[MAX_SOLUTIONS]) {
     
-
+    int soln_count = 0;
     for (uint64_t low26_guess_state1_1=0; low26_guess_state1_1 < (1ULL <<26); ++low26_guess_state1_1) {
       uint64_t comp_state0_1, comp_state1_1, comp_state1_2;
 
@@ -225,15 +234,17 @@ search_from_2_outputs(uint64_t x0,  uint64_t x1, uint64_t * derived_seed0, uint6
       xorshift128_direct_step(&s0, &s1);
       if (s0 + s1 == x1)  {
         //printf("final states: %llx %llx %6llx\n", comp_state0_1, comp_state1_1, comp_state1_2);
-        *derived_seed0 = comp_state0_1;
-        *derived_seed1 = comp_state1_1;
-        xorshift128_back_step( derived_seed0, derived_seed1);
-        return;
+        derived_seed0[soln_count] = comp_state0_1;
+        derived_seed1[soln_count] = comp_state1_1;
+        xorshift128_back_step( &derived_seed0[soln_count], &derived_seed1[soln_count]);
+        if (++soln_count == MAX_SOLUTIONS) {
+          printf("exiting search early after discovering %d solutions\n",soln_count);
+          return soln_count;
+        }
       }
 
     }
-    printf("Code is buggy or bogus data sent in -- could not find original seed\n");
-    exit(1);
+    return soln_count;
 
 }
 
@@ -321,12 +332,50 @@ double now_seconds(clockid_t clock_id) {
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
+void
+output_single_solution( uint64_t derived_seed0, uint64_t derived_seed1 )
+{
+    printf("Derived seed: \033[1m0x%llx 0x%llx\n", derived_seed0, derived_seed1);
+    printf("Next 8 outputs are:\n");
+    uint64_t s0, s1;
+    s0 = derived_seed0; s1 = derived_seed1;
+    for (int i=0; i < 8; ++i) {
+      xorshift128_direct_step(&s0, &s1);
+      printf("\t0x%llx (= decimal %llu)\n", s0+s1, s0+s1);
+    }
+
+}
 
 
-int main(int argc, char **argv) {
+void
+output_all_solutions( int soln_count, uint64_t derived_seed0[MAX_SOLUTIONS], uint64_t derived_seed1[MAX_SOLUTIONS])
+{
+  if (soln_count > MAX_SOLUTIONS) {
+    // Hey, I'm an AppSec guy.  Leave me alone.
+    printf("Umm, something is weird, exiting.\n");
+    exit(0);
+  }
+  if (soln_count == 0) {
+    printf("Didn't find anything.  Either code is buggy or bogus inputs sent in.\n");
+    exit(0);
+  }
+  if (soln_count == 1) {
+    printf("Found the one solution which is definitely the answer!\n");
+    output_single_solution( derived_seed0[0], derived_seed1[0] );
+  }
+  else {
+    printf("There are %d solutions that generate these outputs.\n", soln_count );
+    for (int j = 0; j < soln_count; ++j) {
+      printf("\n--------------- Solution %d ---------------\n", j+1);
+      output_single_solution( derived_seed0[j], derived_seed1[j] );
+    }
+  }
+}
+
+
+int
+main(int argc, char **argv) {
     uint64_t x0, x1, x2;
-    uint64_t derived_seed0;
-    uint64_t derived_seed1;
 
     if (argc <  3) {
       printf("Please provide at least 2 (prefer 3) consecutive outputs in command line\n");
@@ -334,6 +383,9 @@ int main(int argc, char **argv) {
       exit(0);
     }
     else if (argc == 3) {
+        uint64_t derived_seed0[MAX_SOLUTIONS];
+        uint64_t derived_seed1[MAX_SOLUTIONS];
+        int soln_count;
         printf("Taking 2 observed values from command line\n");
         x0 = strtoull(argv[1], NULL, 0); // accepts decimal or 0x...
         x1 = strtoull(argv[2], NULL, 0);
@@ -343,12 +395,15 @@ int main(int argc, char **argv) {
 
         double t_real0 = now_seconds(CLOCK_REALTIME);
         double t_cpu0  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
-        search_from_2_outputs( x0, x1, &derived_seed0, &derived_seed1);
+        soln_count = search_from_2_outputs( x0, x1, derived_seed0, derived_seed1);
         double t_real1 = now_seconds(CLOCK_REALTIME);
         double t_cpu1  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
         printf("Search ended after %.6f seconds (%.6f seconds CPU time)\n",t_real1 - t_real0, t_cpu1 - t_cpu0);
+        output_all_solutions( soln_count, derived_seed0, derived_seed1 );
     }
     else if (argc >= 3) {
+        uint64_t derived_seed0;
+        uint64_t derived_seed1;
         printf("Taking 3 observed values from command line\n");
         x0 = strtoull(argv[1], NULL, 0); // accepts decimal or 0x...
         x1 = strtoull(argv[2], NULL, 0);
@@ -363,19 +418,10 @@ int main(int argc, char **argv) {
         double t_real1 = now_seconds(CLOCK_REALTIME);
         double t_cpu1  = now_seconds(CLOCK_PROCESS_CPUTIME_ID);
         printf("Search ended after %.6f seconds (%.6f seconds CPU time)\n",t_real1 - t_real0, t_cpu1 - t_cpu0);
+        output_single_solution( derived_seed0, derived_seed1 );
     }
 
 
-
-    printf("Derived seed: \033[1m0x%llx 0x%llx\n", derived_seed0, derived_seed1);
-    printf("\033[1mSuccess!  \033[0mFound a seed that matches those outputs.\n");
-    printf("Next 8 outputs are:\n");
-    uint64_t s0, s1;
-    s0 = derived_seed0; s1 = derived_seed1;
-    for (int i=0; i < 8; ++i) {
-      xorshift128_direct_step(&s0, &s1);
-      printf("\t0x%llx (= decimal %llu)\n", s0+s1, s0+s1);
-    }
 
     return 0;
 }
