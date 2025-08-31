@@ -3,8 +3,10 @@ xorshift128+ is behind JavaScript v8 Math.random() function.
 In most cases you only need 2 outputs to predict all past and future outputs with certainty,
 but in some cases you need 3 outputs.
 This repo demonstrates the inversion with 2 or 3 outputs.
+I have a complete write-up of the algorithm for inverting it
+in [my blog](https://littlemaninmyhead.wordpress.com/2025/08/31/inverting-the-xorshift128-random-number-generator/).
 
-It contains 2 repos as follows:
+This repo contains 2 programs as follows:
 
 - xorshift128.c : this program will take command line input for the seed, and provide observed outputs
 to be fed into the other program.
