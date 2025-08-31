@@ -15,57 +15,58 @@
 //  ------------------------------------      THEORY      ------------------------------------
 //
 //  NOTATION (required to make sense of this code): XorShift128+ takes two 64-bit state inputs (state0, state1)
-//  and transforms them into a new (state0, state1).  We use "_0" to indicate the state at time 0, i.e.
-//  (state0_0, state1_0) is the initial state, aka the seed.  After the first iteration, we call it "_1" so
-//  (state0_1, state1_1).  After the second iteration, it is called (state0_2, state1_2).
+//  and transforms them into a new (state0, state1).  This gets confusing, so I have decided to use L for
+//  state0 (think of it is the state on the left) and R for state1 (on the right).  See my blog for a picture.
+//  We use "_0" to indicate the state at time 0, i.e. (L_0, R_0) is the initial state, aka the seed.
+//  After the first iteration, we call it "_1" so (L_1, R_1).  After the second iteration, it is called (L_2, R_2).
 //
 //  We get outputs after each iteration which are the sum of the states.  We call these:
-//      x0 = state0_1 + state1_1  (the first output)
-//      x1 = state0_2 + state1_2  (the second output)
-//      x2 = state0_3 + state1_3  (the third output)
+//      x0 = L_1 + R_1  (the first output)
+//      x1 = L_2 + R_2  (the second output)
+//      x2 = L_3 + R_3  (the third output)
 //
 //  The way the XorShift128+( ) algorithm works, we have the following properties:
-//      state0_2 = state1_1       (we use this)
-//      state0_3 = state1_2
+//      L_2 = R_1       (we use this)
+//      L_3 = R_2
 //
-//  NAIVE ATTACK (we don't do this): Brute forcing the internal state (state0_0, state1_0) would take 2^128 iterations.
+//  NAIVE ATTACK (we don't do this): Brute forcing the internal state (L_0, R_0) would take 2^128 iterations.
 //  We can do better
 //
 //  OUR ATTACK (i.e. this code): This code does a search on the order of 2^26 operations to derive the internal state.
-//  One of the tricks is that we only need to figure out state1_1 and then we can derive state1_2 and state0_1 using
-//  knowledge of x0, x1 (explained below).  That would reduce it to 2^64 to brute force state1_1, but then we also show
-//  that you can determine state1_1 in 2^26 operations by using x0 and x1.
+//  One of the tricks is that we only need to figure out R_1 and then we can derive R_2 and L_1 using
+//  knowledge of x0, x1 (explained below).  That would reduce it to 2^64 to brute force R_1, but then we also show
+//  that you can determine R_1 in 2^26 operations by using x0 and x1.
 //
-//  WHY KNOWING state1_1 IS ENOUGH TO DETERMINE REMAINING INTERNAL STATE: Remember, we know x0 and x1.  Just knowing
-//  x0 and state1_1, it tells us state0_1 = x0 - state1_1: we know both terms on right hand side, hence we know
-//  state0_1.  So we know the whole internal state after the first iteration!  We can then predict all future states.
+//  WHY KNOWING R_1 IS ENOUGH TO DETERMINE REMAINING INTERNAL STATE: Remember, we know x0 and x1.  Just knowing
+//  x0 and R_1, it tells us L_1 = x0 - R_1: we know both terms on right hand side, hence we know
+//  L_1.  So we know the whole internal state after the first iteration!  We can then predict all future states.
 //  The XorShift128+ is also invertible so we can get the initial state (i.e. the seed) too.
 //
 //  REDUCING THE SEARCH SPACE DOWN TO 2^26: This is the more clever part.  We need to get into details of how
 //  XorShift128+ works, and specifically the part of it we are going to attack, which is from iteration 1 to iteraion 2.
 //  During that step we have:
-//        (state0_1, state1_1) is mapped to (state0_2, state1_2),
-//  but we also know state0_2 = state1_1 so let's write that as:
-//        (state0_1, state1_1) -> (state1_1, state1_2).
-//  If you look at exactly how XorShift128+ is defined, you can write bits of state1_2 as a function of the bits
-//  of state0_1 and state1_1.  We will use brackets [] to indicate bit indices, for example state1_2[i] means the
-//  bit of state1_2 correspond to index i  (i.e. state1_2[i] is (state1_2 >> i)&1).  Then the formula expressing
+//        (L_1, R_1) is mapped to (L_2, R_2),
+//  but we also know L_2 = R_1 so let's write that as:
+//        (L_1, R_1) -> (R_1, R_2).
+//  If you look at exactly how XorShift128+ is defined, you can write bits of R_2 as a function of the bits
+//  of L_1 and R_1.  We will use brackets [] to indicate bit indices, for example R_2[i] means the
+//  bit of R_2 correspond to index i  (i.e. R_2[i] is (R_2 >> i)&1).  Then the formula expressing
 //  output bits from input bits is:
-//      state1_2[i] = state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] ^ state1_1[i+26]
+//      R_2[i] = L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] ^ R_1[i+26]
 //  Where anything with negative index should be treated as no contribution in the forumla.  We change this around
-//  to have state1_1[i+26] on the left hand side, which give us this equation that we call the "inductive equation":
+//  to have R_1[i+26] on the left hand side, which give us this equation that we call the "inductive equation":
 //
-//      state1_1[i+26] = state1_2[i] ^ state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i]
+//      R_1[i+26] = R_2[i] ^ L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i]
 //
-//  The inductive equation tells use that we can determine bit index i+26 of state1_1 by knowing lower index bits of
-//  state0_1 and state1_2.  Now imagine that we know the least significant 26 bits of state1_1 (this is what we are
-//  going to brute force).  Then we can determine the same least significant bits of state0_1 and state1_2 using
-//  x0 and and x1 (the trick in "WHY KNOWING state1_1 IS ENOUGH TO DETERMINE REMAINING INTERNAL STATE" but restricted
-//  to only the bits we need).  In other words, we can exactly determine the next bit of state1_1.  Using the
+//  The inductive equation tells use that we can determine bit index i+26 of R_1 by knowing lower index bits of
+//  L_1 and R_2.  Now imagine that we know the least significant 26 bits of R_1 (this is what we are
+//  going to brute force).  Then we can determine the same least significant bits of L_1 and R_2 using
+//  x0 and and x1 (the trick in "WHY KNOWING R_1 IS ENOUGH TO DETERMINE REMAINING INTERNAL STATE" but restricted
+//  to only the bits we need).  In other words, we can exactly determine the next bit of R_1.  Using the
 //  inductive equation, we can iterate and recover the remaining unknown bits.
 //
-//  So the algorithm guesses the least significant bits of state1_1, derives the remaining bits using the inductive
-//  equation while at the same time deriving the bits of state0_1 and state1_2 using x0.  It then checks if the
+//  So the algorithm guesses the least significant bits of R_1, derives the remaining bits using the inductive
+//  equation while at the same time deriving the bits of L_1 and R_2 using x0.  It then checks if the
 //  guess is correct by running XorShift128+ on the derived state values to see if it matches x0 and x1.  If so,
 //  it is assumed to be a correct find.  I was expecting that I only needed to match x0 to confirm it, but then
 //  I found that there are multiple seeds that can match a particular x0 sometimes when I derive the remaining values
@@ -92,87 +93,88 @@ void xorshift128_direct_step(uint64_t *state0, uint64_t *state1) {
 
 
 
-// Given  state1_1  with an assumption that we know the least significant  known_bits  bits,
+// Given  R_1  with an assumption that we know the least significant  known_bits  bits,
 // and given outputs  x0  and  x1 ,
-// Derive  known_bits  least significant bits of  state0_1  and  state1_2
+// Derive  known_bits  least significant bits of  L_1  and  R_2
 void
-update_states_from_known_state1_1_bits(uint64_t state1_1, uint64_t x0, uint64_t x1,
- int known_bits, uint64_t * state0_1, uint64_t * state1_2)
+update_states_from_known_R_1_bits(uint64_t R_1, uint64_t x0, uint64_t x1,
+ int known_bits, uint64_t * L_1, uint64_t * R_2)
 {
     uint64_t MASK;
 
     MASK = (1ULL << known_bits) - 1;
     if (known_bits < 64) {
-      *state0_1 = ((x0 - state1_1) & MASK);
-      *state1_2 = ((x1 - state1_1) & MASK);
+      *L_1 = ((x0 - R_1) & MASK);   // equivalent to mod 2^known_bits
+      *R_2 = ((x1 - R_1) & MASK);   // equivalent to mod 2^known_bits
     }
     else {
-      *state0_1 = x0 - state1_1;
-      *state1_2 = x1 - state1_1;
+      *L_1 = x0 - R_1;
+      *R_2 = x1 - R_1;
     }
 }
 
 
-// Given bits 0..25 of state0_1, state1_1, state1_2
-// Figure out bits 26..63 of state1_1 using relations and corresponding state0_1, state1_2
+// Given bits 0..25 of L_1, R_1, R_2
+// Figure out bits 26..63 of R_1 using relations and corresponding L_1, R_2
 // Specifically, for 0 <= i < 38 :
-//    state1_2[i] = state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] ^ state1_1[i+26]
+//    R_2[i] = L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] ^ R_1[i+26]
 // where any index less than 0 is treated to have no contribution.
+// This also updates L_1 and R_2 so all three of (L_1, R_1, R_2) are full 64-bit (candidate) values at the end.
 //
 // Future TODO: Code below can be sped up a lot by using pre-computated tables involving all possible
 // combinations of some known collections of bits.
 void
-compute_bits26to63state1_1( uint64_t *state0_1, uint64_t *state1_1, uint64_t *state1_2, uint64_t x0, uint64_t x1 )
+compute_unknown_bits_of_3_state_values( uint64_t *L_1, uint64_t *R_1, uint64_t *R_2, uint64_t x0, uint64_t x1 )
 {
   int i;
-  // the values up to  i < 6  do not involve state0_1[i-6] or state0_1[i-23]
+  // the values up to  i < 6  do not involve L_1[i-6] or L_1[i-23]
   for (i=0; i < 6; ++i) {
-    // state1_2[i] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] = state1_1[i+26]
-    uint64_t bit = (*state1_2 >> i)&1;
-    bit ^= (*state0_1 >> i)&1;
-    bit ^= (*state0_1 >> (i+17))&1;
-    bit ^= (*state1_1 >> i)&1;
-    *state1_1 |= (bit << (i+26));
-    // optimisation: Normally we would call update_states_from_known_state1_1_bits() here
+    // R_2[i] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
+    uint64_t bit = (*R_2 >> i)&1;
+    bit ^= (*L_1 >> i)&1;
+    bit ^= (*L_1 >> (i+17))&1;
+    bit ^= (*R_1 >> i)&1;
+    *R_1 |= (bit << (i+26));
+    // optimisation: Normally we would call update_states_from_known_R_1_bits() here
     // but in this case we don't need to because all of the bits in the equation are
     // completely dependent upon lower order bits, so postpone it to the end
 
   }
-  update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
+  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
 
-  // the values from  6 <= i < 23  do not involve state0_1[i-23]
+  // the values from  6 <= i < 23  do not involve L_1[i-23]
   for (; i < 23; ++i) {
-    // state1_2[i] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] = state1_1[i+26]
-    uint64_t bit = (*state1_2 >> i)&1;
-    bit ^= (*state0_1 >> (i-6))&1;
-    bit ^= (*state0_1 >> i)&1;
-    bit ^= (*state0_1 >> (i+17))&1;
-    bit ^= (*state1_1 >> i)&1;
-    *state1_1 |= (bit << (i+26));
+    // R_2[i] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
+    uint64_t bit = (*R_2 >> i)&1;
+    bit ^= (*L_1 >> (i-6))&1;
+    bit ^= (*L_1 >> i)&1;
+    bit ^= (*L_1 >> (i+17))&1;
+    bit ^= (*R_1 >> i)&1;
+    *R_1 |= (bit << (i+26));
     // optimisation: we only need to update the states when  i+17  starts hitting bits we 
     // do not know.  It really comes down to the difference between 26 - 17 = 9, every 9 iterations.
     // I'm prefer counting every 8 iterations, just my binary nature and not a huge time penalty.
     if ((i&7)==0)
-      update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
+      update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
   }
   // update states before the last loop
-  update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
+  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
 
   for (; i < 38; ++i) {
-    // state1_2[i] ^ state0_1[i-23] ^ state0_1[i-6] ^ state0_1[i] ^ state0_1[i+17] ^ state1_1[i] = state1_1[i+26]
-    uint64_t bit = (*state1_2 >> i)&1;
-    bit ^= (*state0_1 >> (i-23))&1;
-    bit ^= (*state0_1 >> (i-6))&1;
-    bit ^= (*state0_1 >> i)&1;
-    bit ^= (*state0_1 >> (i+17))&1;
-    bit ^= (*state1_1 >> i)&1;
-    *state1_1 |= (bit << (i+26));
+    // R_2[i] ^ L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
+    uint64_t bit = (*R_2 >> i)&1;
+    bit ^= (*L_1 >> (i-23))&1;
+    bit ^= (*L_1 >> (i-6))&1;
+    bit ^= (*L_1 >> i)&1;
+    bit ^= (*L_1 >> (i+17))&1;
+    bit ^= (*R_1 >> i)&1;
+    *R_1 |= (bit << (i+26));
     // same optimisation as above
     if ((i&7)==0)
-      update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
+      update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
   }
   // final update of states
-  update_states_from_known_state1_1_bits( *state1_1, x0, x1, i+27, state0_1, state1_2 );
+  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
 
 }
 
@@ -223,19 +225,19 @@ search_from_2_outputs(uint64_t x0,  uint64_t x1, uint64_t derived_seed0[MAX_SOLU
   uint64_t derived_seed1[MAX_SOLUTIONS]) {
     
     int soln_count = 0;
-    for (uint64_t low26_guess_state1_1=0; low26_guess_state1_1 < (1ULL <<26); ++low26_guess_state1_1) {
-      uint64_t comp_state0_1, comp_state1_1, comp_state1_2;
+    for (uint64_t low26_guess_R_1=0; low26_guess_R_1 < (1ULL <<26); ++low26_guess_R_1) {
+      uint64_t comp_L_1, comp_R_1, comp_R_2;
 
-      comp_state1_1 = (uint64_t)low26_guess_state1_1;
-      update_states_from_known_state1_1_bits( comp_state1_1, x0, x1, 26, &comp_state0_1, &comp_state1_2);
-      compute_bits26to63state1_1( &comp_state0_1, &comp_state1_1, &comp_state1_2, x0, x1 );
-      uint64_t s0 = comp_state0_1;
-      uint64_t s1 = comp_state1_1;
+      comp_R_1 = (uint64_t)low26_guess_R_1;
+      update_states_from_known_R_1_bits( comp_R_1, x0, x1, 26, &comp_L_1, &comp_R_2);
+      compute_unknown_bits_of_3_state_values( &comp_L_1, &comp_R_1, &comp_R_2, x0, x1 );
+      uint64_t s0 = comp_L_1;
+      uint64_t s1 = comp_R_1;
       xorshift128_direct_step(&s0, &s1);
       if (s0 + s1 == x1)  {
-        //printf("final states: %llx %llx %6llx\n", comp_state0_1, comp_state1_1, comp_state1_2);
-        derived_seed0[soln_count] = comp_state0_1;
-        derived_seed1[soln_count] = comp_state1_1;
+        //printf("final states: %llx %llx %6llx\n", comp_L_1, comp_R_1, comp_R_2);
+        derived_seed0[soln_count] = comp_L_1;
+        derived_seed1[soln_count] = comp_R_1;
         xorshift128_back_step( &derived_seed0[soln_count], &derived_seed1[soln_count]);
         if (++soln_count == MAX_SOLUTIONS) {
           printf("exiting search early after discovering %d solutions\n",soln_count);
@@ -254,14 +256,14 @@ search_from_3_outputs(uint64_t x0,  uint64_t x1, uint64_t x2,
   uint64_t * derived_seed0, uint64_t * derived_seed1)
 {
 
-    for (uint64_t low26_guess_state1_1=0; low26_guess_state1_1 < (1ULL <<26); ++low26_guess_state1_1) {
-      uint64_t comp_state0_1, comp_state1_1, comp_state1_2;
+    for (uint64_t low26_guess_R_1=0; low26_guess_R_1 < (1ULL <<26); ++low26_guess_R_1) {
+      uint64_t cand_L_1, cand_R_1, cand_R_2;
 
-      comp_state1_1 = (uint64_t)low26_guess_state1_1;
-      update_states_from_known_state1_1_bits( comp_state1_1, x0, x1, 26, &comp_state0_1, &comp_state1_2);
-      compute_bits26to63state1_1( &comp_state0_1, &comp_state1_1, &comp_state1_2, x0, x1 );
-      uint64_t s0 = comp_state0_1;
-      uint64_t s1 = comp_state1_1;
+      cand_R_1 = (uint64_t)low26_guess_R_1;
+      update_states_from_known_R_1_bits( cand_R_1, x0, x1, 26, &cand_L_1, &cand_R_2);
+      compute_unknown_bits_of_3_state_values( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1 );
+      uint64_t s0 = cand_L_1;
+      uint64_t s1 = cand_R_1;
       xorshift128_direct_step(&s0, &s1);
       if (s0 + s1 == x1)  {
         // bring in x2 to check whether we got the right one
@@ -270,8 +272,8 @@ search_from_3_outputs(uint64_t x0,  uint64_t x1, uint64_t x2,
           printf("Skipping a false positive that would have passed from 2 outputs only\n");
           continue;
         }
-        *derived_seed0 = comp_state0_1;
-        *derived_seed1 = comp_state1_1;
+        *derived_seed0 = cand_L_1;
+        *derived_seed1 = cand_R_1;
         xorshift128_back_step( derived_seed0, derived_seed1);
         return;
       }
@@ -279,50 +281,6 @@ search_from_3_outputs(uint64_t x0,  uint64_t x1, uint64_t x2,
     }
     printf("Code is buggy or bogus data sent in -- could not find original seed\n");
     exit(1);
-}
-
-
-// It's not often, but sometimes there are multiple solutions for the seed that produced x0, x1.
-// To find the right one, you will need a third output, x2.
-// This demo function shows an example where multiple seeds produce the same x0 and x1
-void
-demo_multiple_solutions( )
-{
-    uint64_t seed0;
-    uint64_t seed1;
-    uint64_t x0, x1, s0, s1;
-
-    seed0 = 0xbabef00d12345678;
-    seed1 = 1ULL;
-    s0 = seed0;
-    s1 = seed1;
-    xorshift128_direct_step(&s0, &s1);
-    x0 = s0 + s1;
-    xorshift128_direct_step(&s0, &s1);
-    x1 = s0 + s1;
-    printf("\t\tDemo example: Seeds 0x%llx 0x%llx produce outputs %llx %llx\n", seed0, seed1, x0, x1);
-
-    seed0 = 0x352e3b2a30800e34;
-    seed1 = 0x2e36c694b0c71d9e;
-    s0 = seed0;
-    s1 = seed1;
-    xorshift128_direct_step(&s0, &s1);
-    x0 = s0 + s1;
-    xorshift128_direct_step(&s0, &s1);
-    x1 = s0 + s1;
-    printf("\t\tDemo example: Seeds 0x%llx 0x%llx produce outputs %llx %llx\n", seed0, seed1, x0, x1);
-
-    seed0 = 0xbaf0bc0d8f83042a;
-    seed1 = 0xa0124bc0fdf8bd4c;
-    s0 = seed0;
-    s1 = seed1;
-    // Step once
-    xorshift128_direct_step(&s0, &s1);
-    x0 = s0 + s1;
-    xorshift128_direct_step(&s0, &s1);
-    x1 = s0 + s1;
-    printf("\t\tDemo example: Seeds 0x%llx 0x%llx produce outputs %llx %llx\n", seed0, seed1, x0, x1);
-    
 }
 
 
