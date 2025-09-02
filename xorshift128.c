@@ -23,6 +23,7 @@ int main(int argc, char **argv) {
     // defaults
     uint64_t seed0 = 123456789ULL;
     uint64_t seed1 = 987654321ULL;
+    uint64_t outputs[9];
 
     printf("\n\n");
     if (argc >= 3) {
@@ -47,10 +48,12 @@ int main(int argc, char **argv) {
     for (i=0; i <8; ++i) {
       xorshift128_direct_step(&s0, &s1);
       x = s0 + s1;
+      outputs[i] = x;
       printf("\t0x%llx\n", x);
     }
 
-    printf("Use at least 2 (prefer 3) consecutive outputs in other program to find initial seed\n");
+    printf("\nUse other program as follows:\n");
+    printf("\n\t./inverter.out 0x%llx 0x%llx 0x%llx\n\n", outputs[0], outputs[1], outputs[2]);
 
 }
 

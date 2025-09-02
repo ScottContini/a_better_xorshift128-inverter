@@ -6,15 +6,19 @@ This repo demonstrates the inversion with 2 or 3 outputs.
 I have a complete write-up of the algorithm for inverting it
 in [my blog](https://littlemaninmyhead.wordpress.com/2025/08/31/inverting-the-xorshift128-random-number-generator/).
 
-This repo contains 2 programs as follows:
+This repo contains 3 programs as follows:
 
 - xorshift128.c : this program will take command line input for the seed, and provide observed outputs
 to be fed into the other program.
 
-- a_better_inverter.c : this program will take command line input of the consecutive observed outputs
+- a_better_inverter.c (reference code): this program will take command line input of the consecutive observed outputs
 from the first program, and retrieve all seeds that match the first 2 outputs.  If you
 provide 3 outputs in the command line, it is very likely that there is only one seed so it
 will derive the exact seed that will match all outputs.
+
+- a_better_inverter_optimised_v0.c (ifaster code): The same as a_better_inverter.c but it is a lot faster.
+It uses ideas based upon pull request 6 from Zibri.  Whereas a_better_inverter.c was designed for readability
+(explained in my blog), this version is better to use in practice to find the secrets.
 
 
 ## xorshift128.c compilation:
@@ -48,6 +52,25 @@ or
 ./inverter.out x0 x1 x2
 ```
 
+## a_better_inverter_optimised_v0.c compilation:
+
+
+```bash
+gcc -O3 a_better_inverter_optimised_v0.c -o better_inverter.out
+```
+
+## a_better_inverter_optimised_v0.c Usage
+
+```bash
+./better_inverter.out x0 x1 
+```
+
+or
+
+```bash
+./better_inverter.out x0 x1 x2
+```
+
 ## Example
 For example
 ```bash
@@ -68,19 +91,22 @@ The observed outputs are:
 	0xba038712153e9631
 	0x1317b7415767c56b
 	0xe8473ac18b0ebb05
-Use at least 2 (prefer 3) consecutive outputs in other program to find initial seed
+
+Use other program as follows:
+
+	./inverter.out 0xbc37b4c21fad6702 0x533174ceb893a293 0xb609a47e0f4f2897
 ```
 
-We can then do
+We can then do (you can compare speed between better_invert.out and inverter.out):
 
 ```bash
-./inverter.out 0xbc37b4c21fad6702 0x533174ceb893a293 0xb609a47e0f4f2897
+./better_inverter.out 0xbc37b4c21fad6702 0x533174ceb893a293 0xb609a47e0f4f2897
 ```
 
 or 
 
 ```bash
-./inverter.out 0xbc37b4c21fad6702 0x533174ceb893a293
+./better_inverter.out 0xbc37b4c21fad6702 0x533174ceb893a293
 ```
 
 

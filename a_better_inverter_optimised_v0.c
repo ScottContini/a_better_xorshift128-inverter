@@ -1,10 +1,16 @@
-a_better_inverter.c#include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <stddef.h>
 #include <time.h>
 
+// This version is a slight modification of Zibri's pull request:
+//    https://github.com/ScottContini/a_better_xorshift128-inverter/pull/6
+// It uses his idea of parallel computation but fixes the bug, so therefore there
+// is no need to fall back to the slow search from the old implementation.
+
+// ------------------------------------------------------------------------------------------
 // This program will find a seed that matches outputs from xorshift128.c.
 // You can feed in either 2 or 3 consecutive outputs from xorshift128.c.
 //    - If you provide only 2, then there is a chance that it will not find the same seed as was 
@@ -103,14 +109,8 @@ update_states_from_known_R_1_bits(uint64_t R_1, uint64_t x0, uint64_t x1,
     uint64_t MASK;
 
     MASK = (1ULL << known_bits) - 1;
-    if (known_bits < 64) {
-      *L_1 = ((x0 - R_1) & MASK);   // equivalent to mod 2^known_bits
-      *R_2 = ((x1 - R_1) & MASK);   // equivalent to mod 2^known_bits
-    }
-    else {
-      *L_1 = x0 - R_1;
-      *R_2 = x1 - R_1;
-    }
+    *L_1 = ((x0 - R_1) & MASK);   // equivalent to mod 2^known_bits
+    *R_2 = ((x1 - R_1) & MASK);   // equivalent to mod 2^known_bits
 }
 
 
@@ -121,60 +121,41 @@ update_states_from_known_R_1_bits(uint64_t R_1, uint64_t x0, uint64_t x1,
 // where any index less than 0 is treated to have no contribution.
 // This also updates L_1 and R_2 so all three of (L_1, R_1, R_2) are full 64-bit (candidate) values at the end.
 //
-// Future TODO: Code below can be sped up a lot by using pre-computated tables involving all possible
-// combinations of some known collections of bits.
 void
 compute_unknown_bits_of_3_state_values( uint64_t *L_1, uint64_t *R_1, uint64_t *R_2, uint64_t x0, uint64_t x1 )
 {
-  int i;
-  // the values up to  i < 6  do not involve L_1[i-6] or L_1[i-23]
-  for (i=0; i < 6; ++i) {
-    // R_2[i] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
-    uint64_t bit = (*R_2 >> i)&1;
-    bit ^= (*L_1 >> i)&1;
-    bit ^= (*L_1 >> (i+17))&1;
-    bit ^= (*R_1 >> i)&1;
-    *R_1 |= (bit << (i+26));
-    // optimisation: Normally we would call update_states_from_known_R_1_bits() here
-    // but in this case we don't need to because all of the bits in the equation are
-    // completely dependent upon lower order bits, so postpone it to the end
+    uint64_t new_bits, mask;
 
-  }
-  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
+    // Phase 1: Compute bits 26 through 31 of R_1
+    new_bits = (*R_2) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = (1ULL << 6) - 1;   // first 6 bits going to indices 26..31
+    *R_1 |= (new_bits & mask) << 26;
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 32, L_1, R_2);
 
-  // the values from  6 <= i < 23  do not involve L_1[i-23]
-  for (; i < 23; ++i) {
-    // R_2[i] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
-    uint64_t bit = (*R_2 >> i)&1;
-    bit ^= (*L_1 >> (i-6))&1;
-    bit ^= (*L_1 >> i)&1;
-    bit ^= (*L_1 >> (i+17))&1;
-    bit ^= (*R_1 >> i)&1;
-    *R_1 |= (bit << (i+26));
-    // optimisation: we only need to update the states when  i+17  starts hitting bits we 
-    // do not know.  It really comes down to the difference between 26 - 17 = 9, every 9 iterations.
-    // I'm prefer counting every 8 iterations, just my binary nature and not a huge time penalty.
-    if ((i&7)==0)
-      update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
-  }
-  // update states before the last loop
-  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
+    // Phase 2: Compute bits 32 through 40 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 9) - 1) << 6;    // next 9 bits going to indices 32..40
+    *R_1 |= (new_bits & mask) << 26;  // 6 + 26 = 32
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 41, L_1, R_2);
 
-  for (; i < 38; ++i) {
-    // R_2[i] ^ L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
-    uint64_t bit = (*R_2 >> i)&1;
-    bit ^= (*L_1 >> (i-23))&1;
-    bit ^= (*L_1 >> (i-6))&1;
-    bit ^= (*L_1 >> i)&1;
-    bit ^= (*L_1 >> (i+17))&1;
-    bit ^= (*R_1 >> i)&1;
-    *R_1 |= (bit << (i+26));
-    // same optimisation as above
-    if ((i&7)==0)
-      update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
-  }
-  // final update of states
-  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
+    // Phase 2: Compute bits 41 through 48 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 8) - 1) << 15;    // next 9 bits going to indices 41..48
+    *R_1 |= (new_bits & mask) << 26;  // 26 + 15 = 41
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 49, L_1, R_2);
+
+    // Phase 3: Compute bits 49 through 56 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 23) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 8) - 1) << 23;   // next 8 bits going to indices 49..56
+    *R_1 |= (new_bits & mask) << 26;  // 26 + 23 = 49
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 57, L_1, R_2);
+
+
+    // Phase 3: Compute bits 57 through 63 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 23) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 7) - 1) << 31;   // next 8 bits going to indices 57..63
+    *R_1 |= (new_bits & mask) << 26;  // 26 + 31 = 57
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 64, L_1, R_2);
 
 }
 
