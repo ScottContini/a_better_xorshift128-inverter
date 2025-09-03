@@ -16,9 +16,11 @@ from the first program, and retrieve all seeds that match the first 2 outputs.  
 provide 3 outputs in the command line, it is very likely that there is only one seed so it
 will derive the exact seed that will match all outputs.
 
-- a_better_inverter_optimised_v0.c (ifaster code): The same as a_better_inverter.c but it is a lot faster.
-It uses ideas based upon pull request 6 from Zibri.  Whereas a_better_inverter.c was designed for readability
-(explained in my blog), this version is better to use in practice to find the secrets.
+- a_better_inverter_optimised_v0.c (faster code): The same as a_better_inverter.c but it is a lot faster.
+It uses ideas based upon pull request 6 from Zibri.  Zibri observed that parallel bit computation can
+be used to speed up the innermost function call, which is currently the bottleneck.
+Whereas a_better_inverter.c was designed for readability
+(explained in my blog), this version is much better to use in practice to find the seeds.
 
 
 ## xorshift128.c compilation:
