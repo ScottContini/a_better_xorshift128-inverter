@@ -1,4 +1,4 @@
-a_better_inverter.c#include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -70,7 +70,7 @@ a_better_inverter.c#include <stdio.h>
 //  guess is correct by running XorShift128+ on the derived state values to see if it matches x0 and x1.  If so,
 //  it is assumed to be a correct find.  I was expecting that I only needed to match x0 to confirm it, but then
 //  I found that there are multiple seeds that can match a particular x0 sometimes when I derive the remaining values
-//  the way I do.  Hence we also use x2 to check thatw e got the right one.
+//  the way I do.  Hence we also use x2 to check that we got the right one.
 
 
 

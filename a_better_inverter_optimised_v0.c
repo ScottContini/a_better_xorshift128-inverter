@@ -120,7 +120,7 @@ update_states_from_known_R_1_bits(uint64_t R_1, uint64_t x0, uint64_t x1,
 //    R_2[i] = L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] ^ R_1[i+26]
 // where any index less than 0 is treated to have no contribution.
 // This also updates L_1 and R_2 so all three of (L_1, R_1, R_2) are full 64-bit (candidate) values at the end.
-//
+// (This is the clever contribution from Zibri, but modified to make it work 100% of the time)
 void
 compute_unknown_bits_of_3_state_values( uint64_t *L_1, uint64_t *R_1, uint64_t *R_2, uint64_t x0, uint64_t x1 )
 {
