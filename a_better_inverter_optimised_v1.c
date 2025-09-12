@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <time.h>
 
+// This version adds a new trick: computing R_2 two different ways to filter out more cases that can't work
+
+// ------------------------------------------------------------------------------------------
 // This program will find a seed that matches outputs from xorshift128.c.
 // You can feed in either 2 or 3 consecutive outputs from xorshift128.c.
 //    - If you provide only 2, then there is a chance that it will not find the same seed as was 
@@ -70,7 +73,7 @@
 //  guess is correct by running XorShift128+ on the derived state values to see if it matches x0 and x1.  If so,
 //  it is assumed to be a correct find.  I was expecting that I only needed to match x0 to confirm it, but then
 //  I found that there are multiple seeds that can match a particular x0 sometimes when I derive the remaining values
-//  the way I do.  Hence we also use x2 to check that we got the right one.
+//  the way I do.  Hence we also use x2 to check thatw e got the right one.
 
 
 
@@ -103,14 +106,34 @@ update_states_from_known_R_1_bits(uint64_t R_1, uint64_t x0, uint64_t x1,
     uint64_t MASK;
 
     MASK = (1ULL << known_bits) - 1;
-    if (known_bits < 64) {
-      *L_1 = ((x0 - R_1) & MASK);   // equivalent to mod 2^known_bits
-      *R_2 = ((x1 - R_1) & MASK);   // equivalent to mod 2^known_bits
-    }
-    else {
-      *L_1 = x0 - R_1;
-      *R_2 = x1 - R_1;
-    }
+    *L_1 = ((x0 - R_1) & MASK);   // equivalent to mod 2^known_bits
+    *R_2 = ((x1 - R_1) & MASK);   // equivalent to mod 2^known_bits
+}
+
+
+// This is a quick prune test.
+// We find two different ways to compute bits 26..31 of R_2.  For the right R_1 guess, these
+// will be consistent.  For the wrong R_1 guess, usually but not always they are inconsistent.
+// This function returns 1 if the two calculations are consistent, 0 otherwise.
+int
+compute_R_2_two_different_ways( uint64_t *in_L_1, uint64_t *in_R_1, uint64_t *in_R_2, uint64_t x0, uint64_t x1, uint64_t x2 )
+{
+    uint64_t new_bits, mask;
+    uint64_t L_1 = *in_L_1, R_1 = *in_R_1, R_2 = *in_R_2;
+
+    // Step 1: Compute bits 26 through 31 of R_1
+    new_bits = (R_2) ^ (L_1) ^ (L_1 >> 17) ^ (R_1);
+    mask = (1ULL << 6) - 1;   // first 6 bits going to indices 26..31
+    R_1 |= (new_bits & mask) << 26;
+    R_2 = (x1 - R_1) & ((1ULL << 32) -1);
+
+    // Step 2: Compute R_2 similar to how we computed R_1 above
+    uint64_t other_R_2_comp = R_2 & ((1ULL<<26)-1);
+    uint64_t R_3 = x2 - R_2;
+    uint64_t computed_bits26to31ofR_2;
+    // Compute bits 26 through 31 of R_2 via inductive equation, but remember L_2 = R_1
+    computed_bits26to31ofR_2 = (R_3) ^ (R_1) ^ (R_1 >> 17) ^ (other_R_2_comp);
+    return ((computed_bits26to31ofR_2 ^ (R_2 >> 26))&63) == 0 ? 1 : 0;
 }
 
 
@@ -120,58 +143,43 @@ update_states_from_known_R_1_bits(uint64_t R_1, uint64_t x0, uint64_t x1,
 //    R_2[i] = L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] ^ R_1[i+26]
 // where any index less than 0 is treated to have no contribution.
 // This also updates L_1 and R_2 so all three of (L_1, R_1, R_2) are full 64-bit (candidate) values at the end.
+// (This is the clever contribution from Zibri, but modified to make it work 100% of the time)
 void
 compute_unknown_bits_of_3_state_values( uint64_t *L_1, uint64_t *R_1, uint64_t *R_2, uint64_t x0, uint64_t x1 )
 {
-  int i;
-  // the values up to  i < 6  do not involve L_1[i-6] or L_1[i-23]
-  for (i=0; i < 6; ++i) {
-    // R_2[i] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
-    uint64_t bit = (*R_2 >> i)&1;
-    bit ^= (*L_1 >> i)&1;
-    bit ^= (*L_1 >> (i+17))&1;
-    bit ^= (*R_1 >> i)&1;
-    *R_1 |= (bit << (i+26));
-    // optimisation: Normally we would call update_states_from_known_R_1_bits() here
-    // but in this case we don't need to because all of the bits in the equation are
-    // completely dependent upon lower order bits, so postpone it to the end
+    uint64_t new_bits, mask;
 
-  }
-  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
+    // Phase 1: Compute bits 26 through 31 of R_1
+    new_bits = (*R_2) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = (1ULL << 6) - 1;   // first 6 bits going to indices 26..31
+    *R_1 |= (new_bits & mask) << 26;
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 32, L_1, R_2);
 
-  // the values from  6 <= i < 23  do not involve L_1[i-23]
-  for (; i < 23; ++i) {
-    // R_2[i] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
-    uint64_t bit = (*R_2 >> i)&1;
-    bit ^= (*L_1 >> (i-6))&1;
-    bit ^= (*L_1 >> i)&1;
-    bit ^= (*L_1 >> (i+17))&1;
-    bit ^= (*R_1 >> i)&1;
-    *R_1 |= (bit << (i+26));
-    // optimisation: we only need to update the states when  i+17  starts hitting bits we 
-    // do not know.  It really comes down to the difference between 26 - 17 = 9, every 9 iterations.
-    // I'm prefer counting every 8 iterations, just my binary nature and not a huge time penalty.
-    if ((i&7)==0)
-      update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
-  }
-  // update states before the last loop
-  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
+    // Phase 2: Compute bits 32 through 40 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 9) - 1) << 6;    // next 9 bits going to indices 32..40
+    *R_1 |= (new_bits & mask) << 26;  // 6 + 26 = 32
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 41, L_1, R_2);
 
-  for (; i < 38; ++i) {
-    // R_2[i] ^ L_1[i-23] ^ L_1[i-6] ^ L_1[i] ^ L_1[i+17] ^ R_1[i] = R_1[i+26]
-    uint64_t bit = (*R_2 >> i)&1;
-    bit ^= (*L_1 >> (i-23))&1;
-    bit ^= (*L_1 >> (i-6))&1;
-    bit ^= (*L_1 >> i)&1;
-    bit ^= (*L_1 >> (i+17))&1;
-    bit ^= (*R_1 >> i)&1;
-    *R_1 |= (bit << (i+26));
-    // same optimisation as above
-    if ((i&7)==0)
-      update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
-  }
-  // final update of states
-  update_states_from_known_R_1_bits( *R_1, x0, x1, i+27, L_1, R_2 );
+    // Phase 2: Compute bits 41 through 48 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 8) - 1) << 15;    // next 9 bits going to indices 41..48
+    *R_1 |= (new_bits & mask) << 26;  // 26 + 15 = 41
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 49, L_1, R_2);
+
+    // Phase 3: Compute bits 49 through 56 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 23) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 8) - 1) << 23;   // next 8 bits going to indices 49..56
+    *R_1 |= (new_bits & mask) << 26;  // 26 + 23 = 49
+    update_states_from_known_R_1_bits(*R_1, x0, x1, 57, L_1, R_2);
+
+
+    // Phase 3: Compute bits 57 through 63 of R_1
+    new_bits = (*R_2) ^ (*L_1 << 23) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
+    mask = ((1ULL << 7) - 1) << 31;   // next 8 bits going to indices 57..63
+    *R_1 |= (new_bits & mask) << 26;  // 26 + 31 = 57
+    *L_1 = x0 - *R_1;
+    *R_2 = x1 - *R_1;
 
 }
 
@@ -247,6 +255,7 @@ search_from_2_outputs(uint64_t x0,  uint64_t x1, uint64_t derived_seed0[MAX_SOLU
 
 }
 
+
 // Given three outputs x0 and x1 and x2, try to find the seed that generated them.
 void
 search_from_3_outputs(uint64_t x0,  uint64_t x1, uint64_t x2,
@@ -254,28 +263,33 @@ search_from_3_outputs(uint64_t x0,  uint64_t x1, uint64_t x2,
 {
 
     for (uint64_t low26_guess_R_1=0; low26_guess_R_1 < (1ULL <<26); ++low26_guess_R_1) {
-      uint64_t cand_L_1, cand_R_1, cand_R_2;
+        uint64_t cand_L_1, cand_R_1, cand_R_2;
 
-      cand_R_1 = (uint64_t)low26_guess_R_1;
-      update_states_from_known_R_1_bits( cand_R_1, x0, x1, 26, &cand_L_1, &cand_R_2);
-      compute_unknown_bits_of_3_state_values( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1 );
-      uint64_t s0 = cand_L_1;
-      uint64_t s1 = cand_R_1;
-      xorshift128_direct_step(&s0, &s1);
-      if (s0 + s1 == x1)  {
-        // bring in x2 to check whether we got the right one
-        xorshift128_direct_step(&s0, &s1);
-        if (s0 + s1 != x2) {
-          printf("Skipping a false positive that would have passed from 2 outputs only\n");
+        cand_R_1 = (uint64_t)low26_guess_R_1;
+        update_states_from_known_R_1_bits( cand_R_1, x0, x1, 26, &cand_L_1, &cand_R_2);
+        // A quick prune test that involves computing R_2 two different ways to see if it
+        // is consistent.  TODO: Find a way to use this which reduces 2^26 search space
+        if (!compute_R_2_two_different_ways( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1, x2 ))
           continue;
+        // We've passed the prune, now derive the full 64-bits
+        compute_unknown_bits_of_3_state_values( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1 );
+        uint64_t s0 = cand_L_1;
+        uint64_t s1 = cand_R_1;
+        xorshift128_direct_step(&s0, &s1);
+        if (s0 + s1 == x1)  {
+          // bring in x2 to check whether we got the right one
+          xorshift128_direct_step(&s0, &s1);
+          if (s0 + s1 != x2) {
+            printf("Skipping a false positive that would have passed from 2 outputs only\n");
+            continue;
+          }
+          *derived_seed0 = cand_L_1;
+          *derived_seed1 = cand_R_1;
+          xorshift128_back_step( derived_seed0, derived_seed1);
+          return;
         }
-        *derived_seed0 = cand_L_1;
-        *derived_seed1 = cand_R_1;
-        xorshift128_back_step( derived_seed0, derived_seed1);
-        return;
-      }
-
     }
+
     printf("Code is buggy or bogus data sent in -- could not find original seed\n");
     exit(1);
 }
