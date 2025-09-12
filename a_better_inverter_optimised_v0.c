@@ -155,7 +155,8 @@ compute_unknown_bits_of_3_state_values( uint64_t *L_1, uint64_t *R_1, uint64_t *
     new_bits = (*R_2) ^ (*L_1 << 23) ^ (*L_1 << 6) ^ (*L_1) ^ (*L_1 >> 17) ^ (*R_1);
     mask = ((1ULL << 7) - 1) << 31;   // next 8 bits going to indices 57..63
     *R_1 |= (new_bits & mask) << 26;  // 26 + 31 = 57
-    update_states_from_known_R_1_bits(*R_1, x0, x1, 64, L_1, R_2);
+    *L_1 = x0 - *R_1;
+    *R_2 = x1 - *R_1;
 
 }
 

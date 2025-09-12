@@ -6,7 +6,7 @@ This repo demonstrates the inversion with 2 or 3 outputs.
 I have a complete write-up of the algorithm for inverting it
 in [my blog](https://littlemaninmyhead.wordpress.com/2025/08/31/inverting-the-xorshift128-random-number-generator/).
 
-This repo contains 3 programs as follows:
+This repo contains 4 programs as follows:
 
 - xorshift128.c : this program will take command line input for the seed, and provide observed outputs
 to be fed into the other program.
@@ -21,6 +21,11 @@ It uses ideas based upon pull request 6 from Zibri.  Zibri observed that paralle
 be used to speed up the innermost function call, which is currently the bottleneck.
 Whereas a_better_inverter.c was designed for readability
 (explained in my blog), this version is much better to use in practice to find the seeds.
+
+- a_better_inverter_optimised_v1.c (even faster code): The as  a_better_inverter_optimised_v0.c but it is a lot faster
+when 3 observed outputs are supplied.
+This is a new trick that is not yet explained in my blog.  It's based upon computing R_2 two different ways to do
+a quick rejection (pruning) of wrong candidates.  If it passes that test, then we do the same as before.
 
 
 ## xorshift128.c compilation:
@@ -58,7 +63,7 @@ or
 
 
 ```bash
-gcc -O3 a_better_inverter_optimised_v0.c -o better_inverter.out
+gcc -O3 a_better_inverter_optimised_v1.c -o better_inverter.out
 ```
 
 ## a_better_inverter_optimised_v0.c Usage
