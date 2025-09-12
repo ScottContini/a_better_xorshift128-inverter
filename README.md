@@ -22,7 +22,7 @@ be used to speed up the innermost function call, which is currently the bottlene
 Whereas a_better_inverter.c was designed for readability
 (explained in my blog), this version is much better to use in practice to find the seeds.
 
-- a_better_inverter_optimised_v1.c (even faster code): The as  a_better_inverter_optimised_v0.c but it is a lot faster
+- a_better_inverter_optimised_v1.c (even faster code): Same as  a_better_inverter_optimised_v0.c but it is a lot faster
 when 3 observed outputs are supplied.
 This is a new trick that is not yet explained in my blog.  It's based upon computing R_2 two different ways to do
 a quick rejection (pruning) of wrong candidates.  If it passes that test, then we do the same as before.
