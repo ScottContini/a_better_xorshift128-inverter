@@ -26,6 +26,8 @@ Whereas a_better_inverter.c was designed for readability
 when 3 observed outputs are supplied.
 This is a new trick that is not yet explained in my blog.  It's based upon computing R_2 two different ways to do
 a quick rejection (pruning) of wrong candidates.  If it passes that test, then we do the same as before.
+New algorithm reduces search by a factor of 8 because we can exclude large groups of the original search space.
+May be possible to improve this more, this is just the first hack at it.
 
 
 ## xorshift128.c compilation:

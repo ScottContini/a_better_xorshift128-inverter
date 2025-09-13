@@ -6,6 +6,9 @@
 #include <time.h>
 
 // This version adds a new trick: computing R_2 two different ways to filter out more cases that can't work
+// This reduces search currently to 2^23 but I expect more optimisations possible.
+// Analysis to be provided later.
+// Comments below are for old implementation.
 
 // ------------------------------------------------------------------------------------------
 // This program will find a seed that matches outputs from xorshift128.c.
@@ -111,30 +114,6 @@ update_states_from_known_R_1_bits(uint64_t R_1, uint64_t x0, uint64_t x1,
 }
 
 
-// This is a quick prune test.
-// We find two different ways to compute bits 26..31 of R_2.  For the right R_1 guess, these
-// will be consistent.  For the wrong R_1 guess, usually but not always they are inconsistent.
-// This function returns 1 if the two calculations are consistent, 0 otherwise.
-int
-compute_R_2_two_different_ways( uint64_t *in_L_1, uint64_t *in_R_1, uint64_t *in_R_2, uint64_t x0, uint64_t x1, uint64_t x2 )
-{
-    uint64_t new_bits, mask;
-    uint64_t L_1 = *in_L_1, R_1 = *in_R_1, R_2 = *in_R_2;
-
-    // Step 1: Compute bits 26 through 31 of R_1
-    new_bits = (R_2) ^ (L_1) ^ (L_1 >> 17) ^ (R_1);
-    mask = (1ULL << 6) - 1;   // first 6 bits going to indices 26..31
-    R_1 |= (new_bits & mask) << 26;
-    R_2 = (x1 - R_1) & ((1ULL << 32) -1);
-
-    // Step 2: Compute R_2 similar to how we computed R_1 above
-    uint64_t other_R_2_comp = R_2 & ((1ULL<<26)-1);
-    uint64_t R_3 = x2 - R_2;
-    uint64_t computed_bits26to31ofR_2;
-    // Compute bits 26 through 31 of R_2 via inductive equation, but remember L_2 = R_1
-    computed_bits26to31ofR_2 = (R_3) ^ (R_1) ^ (R_1 >> 17) ^ (other_R_2_comp);
-    return ((computed_bits26to31ofR_2 ^ (R_2 >> 26))&63) == 0 ? 1 : 0;
-}
 
 
 // Given bits 0..25 of L_1, R_1, R_2
@@ -256,37 +235,78 @@ search_from_2_outputs(uint64_t x0,  uint64_t x1, uint64_t derived_seed0[MAX_SOLU
 }
 
 
-// Given three outputs x0 and x1 and x2, try to find the seed that generated them.
+// Compute bits 26..31 of  R_2 two different ways and return their difference.
+// The prune test calls it possibly valid if diff is 0 or -1 , invalid if the diff is something else
+int
+compare_two_R_2_computations( uint64_t *in_L_1, uint64_t *in_R_1, uint64_t *in_R_2, uint64_t x0, uint64_t x1, uint64_t x2 )
+{
+    uint64_t new_bits, mask;
+    uint64_t L_1 = *in_L_1, R_1 = *in_R_1, R_2 = *in_R_2;
+
+    // Step 1: Compute bits 26 through 31 of R_1
+    new_bits = (R_2) ^ (L_1) ^ (L_1 >> 17) ^ (R_1);
+    mask = (1ULL << 6) - 1;   // first 6 bits going to indices 26..31
+    R_1 |= (new_bits & mask) << 26;
+    R_2 = (x1 - R_1) & ((1ULL << 32) -1);
+
+    // Step 2: Compute R_2 similar to how we computed R_1 above
+    uint64_t other_R_2_comp = R_2 & ((1ULL<<26)-1);
+    uint64_t R_3 = x2 - R_2;
+    uint64_t computed_bits26to31ofR_2;
+    // Compute bits 26 through 31 of R_2 via inductive equation, but remember L_2 = R_1
+    computed_bits26to31ofR_2 = (R_3) ^ (R_1) ^ (R_1 >> 17) ^ (other_R_2_comp);
+    int diff = (int) (computed_bits26to31ofR_2&63) - (int) ((R_2 >> 26)&63);
+    return diff;
+}
+
+
+
+
+// Given three outputs x0 and x1 and x2, find the seed that generated them.
 void
 search_from_3_outputs(uint64_t x0,  uint64_t x1, uint64_t x2,
   uint64_t * derived_seed0, uint64_t * derived_seed1)
 {
 
-    for (uint64_t low26_guess_R_1=0; low26_guess_R_1 < (1ULL <<26); ++low26_guess_R_1) {
+    // Prune test uses x2 to compute bits 25..31 of R_2 in two different ways.
+    // Nothing from bits 23, 24 or 25 are involved with our prune test, so 
+    // we can get away searching only up to 2^23 effort.  However, because of
+    // borrows, we need to consider within a difference of 1 for passing the prune test.
+    // New strategy: loop through 2^23 combinations for lsbs of R_1.  If any passes the
+    // prune test, then consider all possible combinations for bits 23..25.
+    for (uint64_t low22_guess_R_1=0; low22_guess_R_1 < (1ULL <<23); ++low22_guess_R_1) {
         uint64_t cand_L_1, cand_R_1, cand_R_2;
 
-        cand_R_1 = (uint64_t)low26_guess_R_1;
-        update_states_from_known_R_1_bits( cand_R_1, x0, x1, 26, &cand_L_1, &cand_R_2);
-        // A quick prune test that involves computing R_2 two different ways to see if it
-        // is consistent.  TODO: Find a way to use this which reduces 2^26 search space
-        if (!compute_R_2_two_different_ways( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1, x2 ))
-          continue;
-        // We've passed the prune, now derive the full 64-bits
-        compute_unknown_bits_of_3_state_values( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1 );
-        uint64_t s0 = cand_L_1;
-        uint64_t s1 = cand_R_1;
-        xorshift128_direct_step(&s0, &s1);
-        if (s0 + s1 == x1)  {
-          // bring in x2 to check whether we got the right one
-          xorshift128_direct_step(&s0, &s1);
-          if (s0 + s1 != x2) {
-            printf("Skipping a false positive that would have passed from 2 outputs only\n");
-            continue;
+        cand_R_1 = (uint64_t)low22_guess_R_1;
+        update_states_from_known_R_1_bits( cand_R_1, x0, x1, 23, &cand_L_1, &cand_R_2);
+        // prune test:
+        int diff = compare_two_R_2_computations( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1, x2 );
+        if (diff >= -1 && diff <= 0) {
+          // passed initial prune, now try all combinations for bits 23..25
+          // Remark: about 1/32 will pass the initial prune, for these we do 8 iterations.
+          // Expected runtime: 2^23 ( 1 + 1/32 * 8 ) which is a tad more than 2^23.
+          for (uint64_t bits23to25 = 0; bits23to25 < 8; ++bits23to25) {
+              cand_R_1 = low22_guess_R_1 | (bits23to25 << 23);
+
+              // We've passed the prune, now derive the full 64-bits
+              compute_unknown_bits_of_3_state_values( &cand_L_1, &cand_R_1, &cand_R_2, x0, x1 );
+              uint64_t s0 = cand_L_1;
+              uint64_t s1 = cand_R_1;
+              xorshift128_direct_step(&s0, &s1);
+              if (s0 + s1 == x1)  {
+                // bring in x2 to check whether we got the right one
+                xorshift128_direct_step(&s0, &s1);
+                if (s0 + s1 != x2) {
+                  printf("Skipping a false positive that would have passed from 2 outputs only\n");
+                  continue;
+                }
+                *derived_seed0 = cand_L_1;
+                *derived_seed1 = cand_R_1;
+                xorshift128_back_step( derived_seed0, derived_seed1);
+                //printf("final_diff: %d\n",diff);
+                return;
+              }
           }
-          *derived_seed0 = cand_L_1;
-          *derived_seed1 = cand_R_1;
-          xorshift128_back_step( derived_seed0, derived_seed1);
-          return;
         }
     }
 
